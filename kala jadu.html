@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>kala Jadu 2026👽🛸</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; -webkit-user-select: none; }
+        body { background: #000; overflow: hidden; height: 100vh; width: 100vw; position: fixed; font-family: sans-serif; overscroll-behavior: none; }
+        canvas { display: block; width: 100%; height: 100%; }
+        
+        #hud { position: absolute; top: env(safe-area-inset-top, 20px); width: 100%; display: flex; justify-content: space-around; color: #fff; font-weight: 900; pointer-events: none; z-index: 10; font-size: 22px; text-shadow: 0 0 15px #00f2ff; }
+        
+        .joy-container { position: absolute; width: 120px; height: 120px; border: 3px solid rgba(255,255,255,0.2); border-radius: 50%; background: rgba(0,0,0,0.4); display: none; transform: translate(-50%, -50%); z-index: 5; }
+        .joy-knob { position: absolute; width: 50px; height: 50px; background: #fff; border-radius: 50%; left: 50%; top: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 20px #fff; }
+        
+        #overlay { position: absolute; inset: 0; background: radial-gradient(circle, rgba(0,30,60,0.9) 0%, rgba(0,0,0,1) 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; z-index: 100; text-align: center; }
+        .btn { background: linear-gradient(45deg, #00f2ff, #0066ff); color: #fff; padding: 20px 50px; border: none; border-radius: 50px; font-weight: bold; font-size: 24px; box-shadow: 0 0 30px rgba(0,242,255,0.5); }
+        
+        #power-msg { position: absolute; bottom: 120px; width: 100%; text-align: center; color: #ff0; font-weight: bold; font-size: 28px; text-shadow: 0 0 10px #000; opacity: 0; transition: 0.3s; pointer-events: none; z-index: 20; }
+    </style>
+</head>
+<body>
+
+    <div id="hud">
+        <div>WAVE <span id="wave">1</span></div>
+        <div>SCORE <span id="kills">0</span></div>
+    </div>
+    <div id="power-msg">POWER UP!</div>
+
+    <div id="left-joy" class="joy-container"><div class="joy-knob"></div></div>
+    <div id="right-joy" class="joy-container"><div class="joy-knob" style="background:#ff0055; box-shadow:0 0 20px #ff0055;"></div></div>
+
+    <div id="overlay">
+        <h1 style="font-size: 42px; color:#00f2ff; margin-bottom: 10px;">kala Jadu pro 2026👽🛸</h1>
+        <p style="color: #888; margin-bottom: 30px;">Collect ⭐ 🛡️ ⏳ 💣 to survive</p>
+        <button class="btn" onclick="start()">START ENGINE</button>
+    </div>
+
+    <canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+let w, h, dpr = window.devicePixelRatio || 1;
+let active = false, score = 0, wave = 1, shake = 0;
+
+function resize() {
+    w = window.innerWidth; h = window.innerHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Game State
+let player = { x: 0, y: 0, mx: 0, my: 0, ang: 0, fire: false, triple: 0, shield: false, slow: 0 };
+let bullets = [], enemies = [], particles = [], powerups = [];
+let stars = Array.from({length: 50}, () => ({x: Math.random()*w, y: Math.random()*h, s: Math.random()*2+1}));
+let pointers = { left: null, right: null };
+
+// Pointer Tracking
+window.addEventListener('pointerdown', e => {
+    if(!active) return;
+    if(e.clientX < w/2 && !pointers.left) {
+        pointers.left = { id: e.pointerId, sx: e.clientX, sy: e.clientY };
+        showJoy('left-joy', e.clientX, e.clientY);
+    } else if(!pointers.right) {
+        pointers.right = { id: e.pointerId, sx: e.clientX, sy: e.clientY };
+        showJoy('right-joy', e.clientX, e.clientY);
+    }
+});
+
+window.addEventListener('pointermove', e => {
+    if(pointers.left && e.pointerId === pointers.left.id) {
+        let dx = e.clientX - pointers.left.sx, dy = e.clientY - pointers.left.sy;
+        let d = Math.min(50, Math.hypot(dx, dy)), a = Math.atan2(dy, dx);
+        player.mx = (Math.cos(a)*d)/50; player.my = (Math.sin(a)*d)/50;
+        moveKnob('left-joy', Math.cos(a)*d, Math.sin(a)*d);
+    }
+    if(pointers.right && e.pointerId === pointers.right.id) {
+        let dx = e.clientX - pointers.right.sx, dy = e.clientY - pointers.right.sy;
+        let d = Math.min(50, Math.hypot(dx, dy)), a = Math.atan2(dy, dx);
+        player.ang = a; player.fire = d > 15;
+        moveKnob('right-joy', Math.cos(a)*d, Math.sin(a)*d);
+    }
+});
+
+window.addEventListener('pointerup', e => {
+    if(pointers.left && e.pointerId === pointers.left.id) { pointers.left = null; player.mx = player.my = 0; hideJoy('left-joy'); }
+    if(pointers.right && e.pointerId === pointers.right.id) { pointers.right = null; player.fire = false; hideJoy('right-joy'); }
+});
+
+function showJoy(id, x, y) { let el = document.getElementById(id); el.style.display='block'; el.style.left=x+'px'; el.style.top=y+'px'; }
+function hideJoy(id) { document.getElementById(id).style.display='none'; }
+function moveKnob(id, x, y) { document.querySelector(`#${id} .joy-knob`).style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`; }
+
+function msg(text) {
+    let m = document.getElementById('power-msg');
+    m.innerText = text; m.style.opacity = 1;
+    setTimeout(() => m.style.opacity = 0, 1500);
+}
+
+function spawnPart(x, y, color, count=8) {
+    for(let i=0; i<count; i++) particles.push({x, y, vx: (Math.random()-0.5)*12, vy: (Math.random()-0.5)*12, life: 1, c: color});
+}
+
+function start() {
+    active = true; score = 0; wave = 1; enemies = []; bullets = []; particles = []; powerups = [];
+    player.x = w/2; player.y = h/2; player.triple = 0; player.shield = false; player.slow = 0;
+    document.getElementById('overlay').style.display = 'none';
+}
+
+function update() {
+    if(!active) return;
+    if(shake > 0) shake *= 0.8;
+
+    player.x += player.mx * 7; player.y += player.my * 7;
+    player.x = Math.max(20, Math.min(w-20, player.x));
+    player.y = Math.max(20, Math.min(h-20, player.y));
+    
+    if(player.triple > 0) player.triple--;
+    if(player.slow > 0) player.slow--;
+
+    // Shoot
+    if(player.fire && Date.now() - (window.lastShot||0) > 130) {
+        const f = (a) => bullets.push({x: player.x, y: player.y, vx: Math.cos(a)*16, vy: Math.sin(a)*16});
+        f(player.ang);
+        if(player.triple > 0) { f(player.ang-0.25); f(player.ang+0.25); }
+        window.lastShot = Date.now();
+        if(navigator.vibrate) navigator.vibrate(10);
+    }
+
+    // Powerup Logic
+    powerups.forEach((p, i) => {
+        if(Math.hypot(p.x-player.x, p.y-player.y) < 40) {
+            if(p.t === 'triple') { player.triple = 400; msg("TRIPLE SHOT!"); }
+            if(p.t === 'shield') { player.shield = true; msg("SHIELD UP!"); }
+            if(p.t === 'slow')   { player.slow = 300; msg("TIME WARP!"); }
+            if(p.t === 'bomb')   { 
+                enemies.forEach(e => spawnPart(e.x, e.y, '#ff0', 10));
+                enemies = []; shake = 25; msg("MEGA BOMB!"); 
+            }
+            powerups.splice(i, 1);
+        }
+    });
+
+    // Enemy Logic
+    if(Math.random() < 0.02 + (wave*0.005)) {
+        enemies.push({x: Math.random()*w, y: -40, hp: wave, s: 1.8 + (wave*0.1), b: Math.random()*100});
+    }
+
+    for(let i=enemies.length-1; i>=0; i--) {
+        let e = enemies[i];
+        let spd = player.slow > 0 ? 0.4 : 1;
+        let a = Math.atan2(player.y-e.y, player.x-e.x);
+        e.x += Math.cos(a)*e.s*spd; e.y += Math.sin(a)*e.s*spd;
+
+        bullets.forEach((b, bi) => {
+            if(Math.hypot(e.x-b.x, e.y-b.y) < 30) {
+                e.hp--; bullets.splice(bi, 1);
+                if(e.hp<=0) {
+                    if(Math.random() > 0.9) {
+                        let types = ['triple','shield','slow','bomb'];
+                        powerups.push({x: e.x, y: e.y, t: types[Math.floor(Math.random()*4)]});
+                    }
+                    enemies.splice(i, 1); score++; wave = Math.floor(score/10)+1;
+                    shake = 8; spawnPart(e.x, e.y, '#0f0');
+                    document.getElementById('kills').innerText = score;
+                    document.getElementById('wave').innerText = wave;
+                }
+            }
+        });
+
+        if(e && Math.hypot(e.x-player.x, e.y-player.y) < 35) {
+            if(player.shield) { player.shield = false; enemies.splice(i, 1); shake=10; msg("SHIELD BROKEN!"); }
+            else { active = false; document.getElementById('overlay').style.display='flex'; }
+        }
+    }
+
+    bullets.forEach((b, i) => { b.x += b.vx; b.y += b.vy; if(b.x<0||b.x>w||b.y<0||b.y>h) bullets.splice(i,1); });
+    particles.forEach((p, i) => { p.x+=p.vx; p.y+=p.vy; p.life-=0.03; if(p.life<=0) particles.splice(i,1); });
+}
+
+function draw() {
+    ctx.save();
+    if(shake > 1) ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
+    ctx.fillStyle = '#010409';
+    ctx.fillRect(0, 0, w, h);
+
+    // Starfield
+    ctx.fillStyle = '#fff';
+    stars.forEach(s => { s.y += s.s; if(s.y > h) s.y = 0; ctx.fillRect(s.x, s.y, 1, 1); });
+
+    if(active) {
+        // Powerups
+        ctx.font = "30px Arial";
+        powerups.forEach(p => {
+            let icons = {triple:'⭐', shield:'🛡️', slow:'⏳', bomb:'💣'};
+            ctx.fillText(icons[p.t], p.x-15, p.y+15);
+        });
+
+        // Player Shield Visual
+        if(player.shield) {
+            ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(player.x, player.y, 35, 0, 7); ctx.stroke();
+        }
+
+        // Player
+        ctx.fillStyle = player.triple > 0 ? '#ff0' : '#00f2ff';
+        ctx.shadowBlur = 15; ctx.shadowColor = ctx.fillStyle;
+        ctx.beginPath(); ctx.arc(player.x, player.y, 20, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Bullets & Particles
+        ctx.fillStyle = '#fff';
+        bullets.forEach(b => ctx.fillRect(b.x-3, b.y-3, 6, 6));
+        particles.forEach(p => { ctx.globalAlpha = p.life; ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, 3, 3); });
+        ctx.globalAlpha = 1;
+
+        // Aliens
+        ctx.font = "34px Arial"; ctx.textAlign = "center";
+        enemies.forEach(e => {
+            let bob = Math.sin((e.b += 0.1))*5;
+            ctx.fillText("👽", e.x, e.y + bob);
+        });
+    }
+    ctx.restore();
+    update();
+    requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
